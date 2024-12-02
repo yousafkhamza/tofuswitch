@@ -48,6 +48,21 @@ get_installed_versions() {
     ls "$TOFU_INSTALL_DIR" 2>/dev/null | sed 's/tofu_//'
 }
 
+# Function to get the latest version
+get_latest_version() {
+    local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
+        | grep '"tag_name":' \
+        | sed -E 's/.*"v?([^"]+)".*/\1/' \
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
+    
+    if [ -z "$versions" ]; then
+        echo -e "${RED}Failed to fetch versions from GitHub.${NC}"
+        exit 1
+    fi
+    
+    echo "$versions" | head -n 1
+}
+
 # Function to fetch and display available versions
 fetch_available_versions() {
     echo -e "${YELLOW}Available OpenTofu versions:${NC}"
@@ -60,8 +75,48 @@ fetch_available_versions() {
         echo -e "${RED}Failed to fetch versions from GitHub.${NC}"
         exit 1
     fi
+
+    # Show all versions if --all flag is used
+    if [ "$1" == "--all" ]; then
+        echo "$versions"
+        return
+    fi
+
+    # Create array of versions
+    readarray -t version_array <<< "$versions"
     
-    echo "$versions"
+    # Show latest 5 versions with numbers
+    echo -e "\nLatest versions (select a number to install):"
+    for i in {0..4}; do
+        if [ -n "${version_array[$i]}" ]; then
+            echo -e "$((i+1)). ${GREEN}${version_array[$i]}${NC}"
+        fi
+    done
+    echo -e "6. Show all versions"
+
+    # Get user selection
+    read -p "Enter number (1-6) or press Ctrl+C to cancel: " selection
+
+    case $selection in
+        [1-5])
+            local selected_version="${version_array[$((selection-1))]}"
+            if [ -n "$selected_version" ]; then
+                echo -e "\nInstalling OpenTofu version ${GREEN}${selected_version}${NC}"
+                install_version "$selected_version"
+            else
+                echo -e "${RED}Invalid selection${NC}"
+                exit 1
+            fi
+            ;;
+        6)
+            echo -e "\nAll available versions:"
+            echo "$versions"
+            ;;
+        *)
+            echo -e "${RED}Invalid selection${NC}"
+            exit 1
+            ;;
+    esac
 }
 
 # Function to remove a version
@@ -136,13 +191,41 @@ _tofuswitch_completions() {
 # Register autocompletion
 complete -F _tofuswitch_completions tofuswitch
 
+# Function to install a version
+install_version() {
+    local version="$1"
+    local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
+    local download_url="${GITHUB_RELEASES_URL}/v${version}/tofu_${version}_linux_amd64.tar.gz"
+
+    # Check if version is already installed
+    if [ -d "$target_dir" ]; then
+        echo -e "${YELLOW}OpenTofu v${version} is already installed.${NC}"
+        return
+    fi
+
+    # Download and extract version
+    echo -e "\nDownloading OpenTofu v${version}..."
+    curl -s -L "$download_url" | tar -xz -C "$TOFU_INSTALL_DIR"
+
+    # Set current version if not already set
+    if [ ! -L "$TOFU_CURRENT_SYMLINK" ]; then
+        ln -s "$target_dir/tofu" "$TOFU_CURRENT_SYMLINK"
+    fi
+
+    echo -e "${GREEN}Installed OpenTofu v${version}.${NC}"
+}
+
 # Main script logic
 case "$1" in
     list)
         list_installed_versions
         ;;
     available)
-        fetch_available_versions
+        if [ "$2" == "--all" ]; then
+            fetch_available_versions --all
+        else
+            fetch_available_versions
+        fi
         ;;
     install)
         if [ -z "$2" ]; then
@@ -162,7 +245,11 @@ case "$1" in
         fi
         ;;
     latest)
-        install_version latest
+        echo -e "${YELLOW}Installing latest version of OpenTofu...${NC}"
+        latest_version=$(get_latest_version)
+        if [ -n "$latest_version" ]; then
+            install_version "$latest_version"
+        fi
         ;;
     help|*)
         echo "tofuswitch - OpenTofu Version Manager"
