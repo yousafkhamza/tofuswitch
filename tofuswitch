@@ -85,9 +85,7 @@ get_latest_version() {
 # Function to fetch and display available versions
 fetch_available_versions() {
     echo -e "${YELLOW}Available OpenTofu versions:${NC}"
-    # Fetch and sort versions
-    local versions
-    versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
+    local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
         | grep '"tag_name":' \
         | sed -E 's/.*"v?([^"]+)".*/\1/' \
         | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
@@ -98,20 +96,45 @@ fetch_available_versions() {
         exit 1
     fi
 
+    # Get current version
+    local current_version=""
+    if [ -L "$TOFU_CURRENT_SYMLINK" ]; then
+        current_version=$(readlink "$TOFU_CURRENT_SYMLINK" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+    fi
+
     # Show all versions if --all flag is used
     if [ "$1" == "--all" ]; then
-        echo "$versions"
+        # Get installed versions for marking
+        local installed_versions=$(get_installed_versions)
+        while IFS= read -r version; do
+            if [ "$version" == "$current_version" ]; then
+                echo -e "* ${version} (current)"
+            elif echo "$installed_versions" | grep -q "^${version}$"; then
+                echo -e "* ${version} (installed)"
+            else
+                echo "  ${version}"
+            fi
+        done <<< "$versions"
         return
     fi
 
     # Create array of versions
     mapfile -t version_array <<< "$versions"
     
+    # Get installed versions for marking
+    local installed_versions=$(get_installed_versions)
+    
     # Show latest 5 versions with numbers
     echo "Latest versions (select a number to install):"
     for i in {0..4}; do
         if [ -n "${version_array[$i]}" ]; then
-            echo -e "$((i+1)). ${GREEN}${version_array[$i]}${NC}"
+            if [ "${version_array[$i]}" == "$current_version" ]; then
+                echo -e "$((i+1)). ${GREEN}${version_array[$i]} (current)${NC}"
+            elif echo "$installed_versions" | grep -q "^${version_array[$i]}$"; then
+                echo -e "$((i+1)). ${GREEN}${version_array[$i]} (installed)${NC}"
+            else
+                echo -e "$((i+1)). ${version_array[$i]}"
+            fi
         fi
     done
     echo "6. Show all versions"
@@ -131,7 +154,7 @@ fetch_available_versions() {
             ;;
         6)
             echo -e "\nAll available versions:"
-            echo "$versions"
+            fetch_available_versions --all
             ;;
         *)
             echo -e "${RED}Invalid selection${NC}"
@@ -222,6 +245,8 @@ install_version() {
     # Check if version is already installed
     if [ -d "$target_dir" ]; then
         echo -e "${YELLOW}OpenTofu v${version} is already installed.${NC}"
+        # Switch to this version even if already installed
+        switch_version "$version"
         rm -rf "$temp_dir"
         return
     fi
@@ -238,12 +263,11 @@ install_version() {
         # Clean up temp directory
         rm -rf "$temp_dir"
 
-        # Set current version if not already set
-        if [ ! -L "$TOFU_CURRENT_SYMLINK" ]; then
-            ln -s "$target_dir/tofu" "$TOFU_CURRENT_SYMLINK"
-        fi
+        # Always switch to the newly installed version
+        rm -f "$TOFU_CURRENT_SYMLINK"
+        ln -s "$target_dir/tofu" "$TOFU_CURRENT_SYMLINK"
 
-        echo -e "${GREEN}Installed OpenTofu v${version}.${NC}"
+        echo -e "${GREEN}Installed OpenTofu v${version} and switched to it.${NC}"
     else
         echo -e "${RED}Failed to download OpenTofu v${version}.${NC}"
         rm -rf "$temp_dir"
