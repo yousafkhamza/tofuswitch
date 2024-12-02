@@ -29,8 +29,14 @@ list_installed_versions() {
             current_version=$(readlink "$TOFU_CURRENT_SYMLINK" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
         fi
 
-        # List only version directories
-        local versions=$(find "$TOFU_INSTALL_DIR" -maxdepth 1 -type d -name "tofu_*" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+)/\1/' | sort -V -r)
+        # List only version directories and filter out non-version files
+        local versions=$(cd "$TOFU_INSTALL_DIR" && \
+            for d in tofu_*; do 
+                if [[ -d "$d" && "$d" =~ ^tofu_([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                    echo "${d#tofu_}"
+                fi
+            done | sort -V -r)
+
         if [ -z "$versions" ]; then
             echo "No versions installed."
         else
@@ -49,7 +55,14 @@ list_installed_versions() {
 
 # Function to get installed versions as a list
 get_installed_versions() {
-    find "$TOFU_INSTALL_DIR" -maxdepth 1 -type d -name "tofu_*" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+)/\1/' | sort -V -r
+    if [ -d "$TOFU_INSTALL_DIR" ]; then
+        cd "$TOFU_INSTALL_DIR" && \
+        for d in tofu_*; do 
+            if [[ -d "$d" && "$d" =~ ^tofu_([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                echo "${d#tofu_}"
+            fi
+        done | sort -V -r
+    fi
 }
 
 # Function to get the latest version
@@ -166,22 +179,22 @@ _tofuswitch_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Available commands
-    local commands="list available install remove current latest help"
+    local commands="list available install remove switch current latest help"
 
     # Subcommand completion
     case "${prev}" in
-        install|remove)
+        install|remove|switch)
             # Combine remote versions with locally installed versions
             local remote_versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
                 | grep '"tag_name":' \
                 | sed -E 's/.*"v?([^"]+)".*/\1/' \
                 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
             
-            # Add locally installed versions for remove command
+            # Add locally installed versions for remove and switch commands
             local installed_versions=$(get_installed_versions)
             
-            if [ "${prev}" = "remove" ]; then
-                # For remove, only suggest locally installed versions
+            if [ "${prev}" = "remove" ] || [ "${prev}" = "switch" ]; then
+                # For remove and switch, only suggest locally installed versions
                 COMPREPLY=( $(compgen -W "${installed_versions}" -- "${cur}") )
             else
                 # For install, suggest all versions
@@ -204,23 +217,68 @@ install_version() {
     local version="$1"
     local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
     local download_url="${GITHUB_RELEASES_URL}/v${version}/tofu_${version}_linux_amd64.tar.gz"
+    local temp_dir=$(mktemp -d)
 
     # Check if version is already installed
     if [ -d "$target_dir" ]; then
         echo -e "${YELLOW}OpenTofu v${version} is already installed.${NC}"
+        rm -rf "$temp_dir"
         return
     fi
 
-    # Download and extract version
-    echo -e "\nDownloading OpenTofu v${version}..."
-    curl -s -L "$download_url" | tar -xz -C "$TOFU_INSTALL_DIR"
+    # Create target directory
+    mkdir -p "$target_dir"
 
-    # Set current version if not already set
-    if [ ! -L "$TOFU_CURRENT_SYMLINK" ]; then
-        ln -s "$target_dir/tofu" "$TOFU_CURRENT_SYMLINK"
+    # Download and extract version to temp directory
+    echo -e "\nDownloading OpenTofu v${version}..."
+    if curl -s -L "$download_url" | tar -xz -C "$temp_dir"; then
+        # Move only the tofu binary to the target directory
+        mv "$temp_dir/tofu" "$target_dir/"
+        
+        # Clean up temp directory
+        rm -rf "$temp_dir"
+
+        # Set current version if not already set
+        if [ ! -L "$TOFU_CURRENT_SYMLINK" ]; then
+            ln -s "$target_dir/tofu" "$TOFU_CURRENT_SYMLINK"
+        fi
+
+        echo -e "${GREEN}Installed OpenTofu v${version}.${NC}"
+    else
+        echo -e "${RED}Failed to download OpenTofu v${version}.${NC}"
+        rm -rf "$temp_dir"
+        rm -rf "$target_dir"
+        exit 1
+    fi
+}
+
+# Function to switch OpenTofu version
+switch_version() {
+    local version="$1"
+    local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
+
+    # If no version specified, show installed versions and guide user
+    if [ -z "$version" ]; then
+        echo -e "${YELLOW}Please specify a version to switch to.${NC}"
+        echo "Available installed versions:"
+        list_installed_versions
+        echo -e "\nUsage: tofuswitch switch <version>"
+        exit 1
     fi
 
-    echo -e "${GREEN}Installed OpenTofu v${version}.${NC}"
+    # Check if version exists
+    if [ ! -d "$target_dir" ]; then
+        echo -e "${RED}Version ${version} is not installed.${NC}"
+        echo "Available installed versions:"
+        list_installed_versions
+        echo -e "\nTo install this version, run: tofuswitch install ${version}"
+        exit 1
+    fi
+
+    # Update symlink
+    rm -f "$TOFU_CURRENT_SYMLINK"
+    ln -s "${target_dir}/tofu" "$TOFU_CURRENT_SYMLINK"
+    echo -e "${GREEN}Switched to OpenTofu v${version}${NC}"
 }
 
 # Main script logic
@@ -241,6 +299,9 @@ case "$1" in
             exit 0
         fi
         install_version "$2"
+        ;;
+    switch)
+        switch_version "$2"
         ;;
     remove)
         remove_version "$2"
@@ -266,6 +327,7 @@ case "$1" in
         echo "  $0 available      # List and select available versions"
         echo "  $0 install <ver>  # Install specific version (or latest)"
         echo "  $0 latest         # Install latest stable version"
+        echo "  $0 switch <ver>   # Switch to specific version"
         echo "  $0 remove <ver>   # Remove specific version"
         echo "  $0 current        # Show current version"
         exit 1
