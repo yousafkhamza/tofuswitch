@@ -53,24 +53,28 @@ get_latest_version() {
     local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
         | grep '"tag_name":' \
         | sed -E 's/.*"v?([^"]+)".*/\1/' \
-        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V -r \
+        | head -n 1)
     
     if [ -z "$versions" ]; then
         echo -e "${RED}Failed to fetch versions from GitHub.${NC}"
         exit 1
     fi
     
-    echo "$versions" | head -n 1
+    echo "$versions"
 }
 
 # Function to fetch and display available versions
 fetch_available_versions() {
     echo -e "${YELLOW}Available OpenTofu versions:${NC}"
-    local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
+    # Fetch and sort versions
+    local versions
+    versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
         | grep '"tag_name":' \
         | sed -E 's/.*"v?([^"]+)".*/\1/' \
         | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-        | sort -t. -k1,1nr -k2,2nr -k3,3nr)
+        | sort -V -r)
     
     if [ -z "$versions" ]; then
         echo -e "${RED}Failed to fetch versions from GitHub.${NC}"
@@ -84,7 +88,7 @@ fetch_available_versions() {
     fi
 
     # Create array of versions
-    readarray -t version_array <<< "$versions"
+    mapfile -t version_array <<< "$versions"
     
     # Show latest 5 versions with numbers
     echo "Latest versions (select a number to install):"
@@ -93,11 +97,9 @@ fetch_available_versions() {
             echo -e "$((i+1)). ${GREEN}${version_array[$i]}${NC}"
         fi
     done
-    echo -e "6. Show all versions"
+    echo "6. Show all versions"
     echo -n "Enter number (1-6) or press Ctrl+C to cancel: "
-
-    # Get user selection
-    read -p "" selection
+    read selection
 
     case $selection in
         [1-5])
