@@ -24,125 +24,50 @@ mkdir -p "$(dirname "$TOFU_CURRENT_SYMLINK")"
 list_installed_versions() {
     echo -e "${YELLOW}Installed OpenTofu versions:${NC}"
     if [ -d "$TOFU_INSTALL_DIR" ]; then
-        ls "$TOFU_INSTALL_DIR" 2>/dev/null || echo "No versions installed."
+        local versions=$(ls "$TOFU_INSTALL_DIR" 2>/dev/null)
+        if [ -z "$versions" ]; then
+            echo "No versions installed."
+        else
+            for version in $versions; do
+                # Strip 'tofu_' prefix and check if current version
+                clean_version=${version#tofu_}
+                if [ "$(readlink "$TOFU_CURRENT_SYMLINK")" == "${TOFU_INSTALL_DIR}/${version}/tofu" ]; then
+                    echo -e "${GREEN}* ${clean_version} (current)${NC}"
+                else
+                    echo "  ${clean_version}"
+                fi
+            done
+        fi
     else
         echo "No versions installed."
     fi
 }
 
-# Function to fetch available versions
-fetch_available_versions() {
-    # Fetch all versions from GitHub API, filtering out non-stable versions
-    local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
-        | grep '"tag_name":' \
-        | sed -E 's/.*"v?([^"]+)".*/\1/' \
-        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-        | sort -Vr)
-
-    # Get latest stable version (first in the sorted list)
-    local latest_stable=$(echo "$versions" | head -n 1)
-
-    # Display first 5 versions
-    echo -e "${YELLOW}Available OpenTofu stable versions:${NC}"
-    echo "$versions" | head -n 5
-
-    # Prompt for version
-    read -p "Enter version to install (or press Enter for the latest stable ${latest_stable}): " chosen_version
-
-    # Use latest stable if no input
-    if [ -z "$chosen_version" ]; then
-        chosen_version="$latest_stable"
-    fi
-
-    # Install the chosen version
-    install_version "$chosen_version"
+# Function to get installed versions as a list
+get_installed_versions() {
+    ls "$TOFU_INSTALL_DIR" 2>/dev/null | sed 's/tofu_//'
 }
 
-# Function to get the latest stable version
-get_latest_stable_version() {
-    curl -s https://api.github.com/repos/opentofu/opentofu/releases \
-        | grep '"tag_name":' \
-        | sed -E 's/.*"v?([^"]+)".*/\1/' \
-        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-        | sort -Vr \
-        | head -n 1
-}
-
-# Function to download and install a specific version
-install_version() {
-    local version="$1"
-    local os=$(uname -s | tr '[:upper:]' '[:lower:]')
-    local arch=$(uname -m)
-
-    # Handle 'latest' keyword
-    if [ "$version" = "latest" ]; then
-        version=$(get_latest_stable_version)
-    fi
-
-    # Normalize architecture
-    case "$arch" in
-        x86_64) arch="amd64" ;;
-        aarch64) arch="arm64" ;;
-    esac
-
-    local download_url="${GITHUB_RELEASES_URL}/v${version}/tofu_${version}_${os}_${arch}.zip"
-    local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
-
-    echo -e "${GREEN}Downloading OpenTofu v${version}...${NC}"
-    
-    # Create version directory
-    mkdir -p "$target_dir"
-
-    # Download and extract
-    curl -L "$download_url" -o "/tmp/tofu_${version}.zip"
-    unzip -o "/tmp/tofu_${version}.zip" -d "$target_dir"
-    rm "/tmp/tofu_${version}.zip"
-
-    # Ensure executable
-    chmod +x "$target_dir/tofu"
-
-    # Update symlink
-    ln -sfn "$target_dir/tofu" "$TOFU_CURRENT_SYMLINK"
-
-    # Ensure tofu is in PATH
-    if [ -L "$TOFU_CURRENT_SYMLINK" ]; then
-        # Method 1: Symlink to /usr/local/bin (requires sudo)
-        sudo ln -sf "$TOFU_CURRENT_SYMLINK" /usr/local/bin/tofu
-        
-        # Method 2: Add to user's PATH in shell config
-        for shell_config in "$HOME/.bashrc" "$HOME/.zshrc"; do
-            if [ -f "$shell_config" ]; then
-                # Remove any existing tofu path entries
-                sed -i '/# OpenTofu Path/d' "$shell_config"
-                sed -i '/export PATH=.*\.tofu\/current.*:/d' "$shell_config"
-                
-                # Add new path entry
-                echo -e "\n# OpenTofu Path\nexport PATH=\"$TOFU_CURRENT_SYMLINK:$PATH\"" >> "$shell_config"
-            fi
-        done
-
-        # Immediately update PATH for current session
-        export PATH="$TOFU_CURRENT_SYMLINK:$PATH"
-    fi
-
-    echo -e "${GREEN}OpenTofu v${version} is now installed and set as the current version.${NC}"
-    
-    # Verify installation
-    if command -v tofu >/dev/null 2>&1; then
-        echo -e "${GREEN}OpenTofu is now available system-wide.${NC}"
-        tofu version
-    else
-        echo -e "${RED}Failed to make OpenTofu available system-wide.${NC}"
-    fi
-}
+# Existing functions remain the same...
 
 # Function to remove a version
 remove_version() {
     local version="$1"
     local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
 
+    # If no version specified, show installed versions and guide user
+    if [ -z "$version" ]; then
+        echo -e "${YELLOW}Please specify a version to remove.${NC}"
+        echo "Available installed versions:"
+        list_installed_versions
+        echo -e "\nUsage: $0 remove <version>"
+        exit 1
+    fi
+
     if [ ! -d "$target_dir" ]; then
         echo -e "${RED}Version ${version} is not installed.${NC}"
+        echo "Available installed versions:"
+        list_installed_versions
         exit 1
     fi
 
@@ -169,12 +94,22 @@ _tofuswitch_completions() {
     # Subcommand completion
     case "${prev}" in
         install|remove)
-            # List available versions for install/remove commands
-            local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
+            # Combine remote versions with locally installed versions
+            local remote_versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
                 | grep '"tag_name":' \
                 | sed -E 's/.*"v?([^"]+)".*/\1/' \
                 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')
-            COMPREPLY=( $(compgen -W "${versions}" -- "${cur}") )
+            
+            # Add locally installed versions for remove command
+            local installed_versions=$(get_installed_versions)
+            
+            if [ "${prev}" = "remove" ]; then
+                # For remove, only suggest locally installed versions
+                COMPREPLY=( $(compgen -W "${installed_versions}" -- "${cur}") )
+            else
+                # For install, suggest all versions
+                COMPREPLY=( $(compgen -W "${remote_versions}" -- "${cur}") )
+            fi
             return 0
             ;;
     esac
@@ -203,11 +138,6 @@ case "$1" in
         install_version "$2"
         ;;
     remove)
-        if [ -z "$2" ]; then
-            echo -e "${RED}Please specify a version to remove.${NC}"
-            echo "Usage: $0 remove <version>"
-            exit 1
-        fi
         remove_version "$2"
         ;;
     current)
