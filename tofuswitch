@@ -24,19 +24,23 @@ mkdir -p "$(dirname "$TOFU_CURRENT_SYMLINK")"
 list_installed_versions() {
     echo -e "${YELLOW}Installed OpenTofu versions:${NC}"
     if [ -d "$TOFU_INSTALL_DIR" ]; then
-        local versions=$(ls "$TOFU_INSTALL_DIR" 2>/dev/null)
+        local current_version=""
+        if [ -L "$TOFU_CURRENT_SYMLINK" ]; then
+            current_version=$(readlink "$TOFU_CURRENT_SYMLINK" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+        fi
+
+        # List only version directories
+        local versions=$(find "$TOFU_INSTALL_DIR" -maxdepth 1 -type d -name "tofu_*" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+)/\1/' | sort -V -r)
         if [ -z "$versions" ]; then
             echo "No versions installed."
         else
-            for version in $versions; do
-                # Strip 'tofu_' prefix and check if current version
-                clean_version=${version#tofu_}
-                if [ "$(readlink "$TOFU_CURRENT_SYMLINK")" == "${TOFU_INSTALL_DIR}/${version}/tofu" ]; then
-                    echo -e "${GREEN}* ${clean_version} (current)${NC}"
+            while IFS= read -r version; do
+                if [ "$version" == "$current_version" ]; then
+                    echo -e "${GREEN}* ${version} (current)${NC}"
                 else
-                    echo "  ${clean_version}"
+                    echo "  ${version}"
                 fi
-            done
+            done <<< "$versions"
         fi
     else
         echo "No versions installed."
@@ -45,7 +49,7 @@ list_installed_versions() {
 
 # Function to get installed versions as a list
 get_installed_versions() {
-    ls "$TOFU_INSTALL_DIR" 2>/dev/null | sed 's/tofu_//'
+    find "$TOFU_INSTALL_DIR" -maxdepth 1 -type d -name "tofu_*" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+)/\1/' | sort -V -r
 }
 
 # Function to get the latest version
