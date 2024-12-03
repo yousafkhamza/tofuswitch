@@ -136,6 +136,10 @@ This will:
     └── tofu_1.8.5/
 ```
 
+## Screenshot
+
+![image](https://github.com/user-attachments/assets/f87e383e-0a98-4de1-9e8c-a34228e06be1)
+
 ## Contributing
 
 Contributions are welcome! Feel free to submit issues and pull requests.
