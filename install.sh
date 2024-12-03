@@ -87,6 +87,12 @@ elif [ -n "$ZSH_VERSION" ]; then
     source "$HOME/.zshrc"
 fi
 
+# Install OpenTofu autocomplete if tofu is available
+if command -v tofu >/dev/null 2>&1; then
+    echo -e "${YELLOW}Installing OpenTofu autocomplete...${NC}"
+    tofu -install-autocomplete 2>/dev/null || true
+fi
+
 # Verify installation
 echo -e "${GREEN}tofuswitch has been successfully installed!${NC}"
 echo -e "${GREEN}Shell configuration has been updated and sourced.${NC}"
