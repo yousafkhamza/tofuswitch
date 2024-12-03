@@ -166,17 +166,45 @@ fetch_available_versions() {
 # Function to remove a version
 remove_version() {
     local version="$1"
-    local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
-
-    # If no version specified, show installed versions and guide user
+    
+    # If no version specified, show interactive menu
     if [ -z "$version" ]; then
-        echo -e "${YELLOW}Please specify a version to remove.${NC}"
-        echo "Available installed versions:"
-        list_installed_versions
-        echo -e "\nUsage: tofuswitch remove <version>"
-        exit 1
+        local installed_versions=($(get_installed_versions))
+        local current_version=""
+        if [ -L "$TOFU_CURRENT_SYMLINK" ]; then
+            current_version=$(readlink "$TOFU_CURRENT_SYMLINK" | sed -E 's/.*tofu_([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+        fi
+
+        if [ ${#installed_versions[@]} -eq 0 ]; then
+            echo -e "${YELLOW}No versions installed.${NC}"
+            exit 1
+        fi
+
+        echo -e "${YELLOW}Installed OpenTofu versions:${NC}"
+        local i=1
+        for ver in "${installed_versions[@]}"; do
+            if [ "$ver" == "$current_version" ]; then
+                echo -e "$i. ${GREEN}${ver} (current)${NC}"
+            else
+                echo -e "$i. ${ver}"
+            fi
+            i=$((i+1))
+        done
+
+        echo -n "Enter number to remove (or press Ctrl+C to cancel): "
+        read selection
+
+        if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le ${#installed_versions[@]} ]; then
+            version="${installed_versions[$((selection-1))]}"
+        else
+            echo -e "${RED}Invalid selection${NC}"
+            exit 1
+        fi
     fi
 
+    local target_dir="${TOFU_INSTALL_DIR}/tofu_${version}"
+
+    # Check if version exists
     if [ ! -d "$target_dir" ]; then
         echo -e "${RED}Version ${version} is not installed.${NC}"
         echo "Available installed versions:"
@@ -186,7 +214,7 @@ remove_version() {
 
     # Check if this is the current version
     if [ "$(readlink "$TOFU_CURRENT_SYMLINK")" == "${target_dir}/tofu" ]; then
-        echo -e "${YELLOW}Cannot remove the current version. Switch to another version first.${NC}"
+        echo -e "${RED}Cannot remove the current version. Switch to another version first.${NC}"
         exit 1
     fi
 
