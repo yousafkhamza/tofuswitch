@@ -148,4 +148,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ![tofuswitch](https://github.com/user-attachments/assets/b2b830a7-09ad-49e9-8c06-fdda22c98e79)
 
-Yousaf K Hamza
