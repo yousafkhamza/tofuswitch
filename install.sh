@@ -42,7 +42,11 @@ update_shell_config "$HOME/.bashrc"
 update_shell_config "$HOME/.zshrc"
 
 # Install autocompletion for bash
-cat << 'EOF' >> "$HOME/.bashrc"
+if [ -f "$HOME/.bashrc" ]; then
+    # Remove existing completion
+    sed -i '/# tofuswitch autocompletion/,/complete -F _tofuswitch_completions tofuswitch/d' "$HOME/.bashrc"
+
+    cat << 'EOF' >> "$HOME/.bashrc"
 
 # tofuswitch autocompletion
 _tofuswitch_completions() {
@@ -52,11 +56,11 @@ _tofuswitch_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Available commands
-    local commands="list available install remove current latest help"
+    local commands="list available install remove switch current latest help"
 
     # Subcommand completion
     case "${prev}" in
-        install|remove)
+        install|remove|switch)
             # List available versions for install/remove commands
             local versions=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases \
                 | grep '"tag_name":' \
@@ -74,12 +78,16 @@ _tofuswitch_completions() {
 
 complete -F _tofuswitch_completions tofuswitch
 EOF
+fi
+
+# Source the shell config files
+if [ -n "$BASH" ]; then
+    source "$HOME/.bashrc"
+elif [ -n "$ZSH_VERSION" ]; then
+    source "$HOME/.zshrc"
+fi
 
 # Verify installation
 echo -e "${GREEN}tofuswitch has been successfully installed!${NC}"
-echo -e "To start using it, either:"
-echo -e "1. Restart your terminal, or"
-echo -e "2. Run: ${YELLOW}source ~/.bashrc${NC} (for bash) or ${YELLOW}source ~/.zshrc${NC} (for zsh)"
+echo -e "${GREEN}Shell configuration has been updated and sourced.${NC}"
 echo -e "\nTry running: ${YELLOW}tofuswitch available${NC} to get started!"
-echo -e "\nTo uninstall tofuswitch in the future, run:"
-echo -e "${YELLOW}curl -sSL https://raw.githubusercontent.com/yousafkhamza/tofuswitch/main/uninstall.sh | bash${NC}"

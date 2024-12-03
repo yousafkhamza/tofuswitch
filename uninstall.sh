@@ -40,6 +40,13 @@ clean_shell_config() {
 clean_shell_config "$HOME/.bashrc"
 clean_shell_config "$HOME/.zshrc"
 
+# Source the updated shell config files
+if [ -n "$BASH" ]; then
+    source "$HOME/.bashrc"
+elif [ -n "$ZSH_VERSION" ]; then
+    source "$HOME/.zshrc"
+fi
+
 echo -e "${GREEN}tofuswitch has been successfully uninstalled!${NC}"
 echo -e "To complete the uninstallation, please:"
 echo -e "1. Restart your terminal, or"
