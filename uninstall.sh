@@ -48,6 +48,3 @@ elif [ -n "$ZSH_VERSION" ]; then
 fi
 
 echo -e "${GREEN}tofuswitch has been successfully uninstalled!${NC}"
-echo -e "To complete the uninstallation, please:"
-echo -e "1. Restart your terminal, or"
-echo -e "2. Run: ${YELLOW}source ~/.bashrc${NC} (for bash) or ${YELLOW}source ~/.zshrc${NC} (for zsh)"
