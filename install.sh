@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Author: Yousaf K Hamza
+# Date: 2024
+# Description: Installation script for tofuswitch - OpenTofu version manager
+
 # tofuswitch Installation Script
 
 set -e

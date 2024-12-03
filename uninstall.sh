@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Author: Yousaf K Hamza
+# Date: 2024
+# Description: Uninstallation script for tofuswitch - OpenTofu version manager
+
 # tofuswitch Uninstallation Script
 
 set -e
